@@ -1,0 +1,7 @@
+# Data folder for storing uploaded datasets
+# This file ensures the data directory is tracked by git
+# Uploaded files will be stored here temporarily during analysis
+
+*.xlsx
+*.xls
+temp_*

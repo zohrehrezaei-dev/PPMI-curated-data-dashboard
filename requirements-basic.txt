@@ -1,0 +1,7 @@
+# Essential packages only
+streamlit
+pandas
+numpy
+plotly
+openpyxl
+matplotlib
