@@ -113,7 +113,7 @@ def main():
     st.markdown("**Parkinson's Progression Markers Initiative - Curated Data Analysis**")
     st.markdown("---")
     
-    # Sidebar for file upload and navigation
+    # Sidebar for file upload and navigation only
     with st.sidebar:
         st.header("📁 Data Upload")
         st.info("Upload your PPMI Excel file with data dictionary to begin analysis")
@@ -123,6 +123,12 @@ def main():
             type=['xlsx'],
             help="Upload your PPMI dataset with data dictionary sheet"
         )
+        
+        # Initialize session state for data
+        if 'main_data' not in st.session_state:
+            st.session_state.main_data = None
+            st.session_state.data_dict = None
+            st.session_state.variable_summary = None
         
         if uploaded_file is not None:
             # Save uploaded file temporarily (cloud-compatible)
@@ -139,78 +145,51 @@ def main():
                 
                 if main_data is None or data_dict is None:
                     st.error("Could not load dataset. Please check the file format.")
-                    return
-                
-                # Dataset info
-                st.info(f"""
-                **Dataset Info:**
-                - Records: {len(main_data):,}
-                - Variables: {len(variable_summary):,}
-                - Total Codes: {len(data_dict):,}
-                """)
-                
-                # Show cohort distribution if COHORT variable exists
-                if 'COHORT' in main_data.columns:
-                    st.subheader("👥 Cohort Distribution")
-                    cohort_counts = main_data['COHORT'].value_counts()
+                else:
+                    # Store in session state
+                    st.session_state.main_data = main_data
+                    st.session_state.data_dict = data_dict
+                    st.session_state.variable_summary = variable_summary
                     
-                    # Get cohort labels from data dictionary
-                    cohort_labels = {}
-                    cohort_info = data_dict[data_dict['Variable'] == 'COHORT']
-                    for _, row in cohort_info.iterrows():
-                        if pd.notna(row['Code']) and pd.notna(row['Decode']):
-                            # Handle both string and numeric codes
-                            code_key = str(row['Code']).strip()
-                            try:
-                                # Try to convert to int if it's a number
-                                if code_key.replace('.', '').isdigit():
-                                    code_key = int(float(code_key))
-                            except:
-                                pass
-                            cohort_labels[code_key] = row['Decode']
+                    # Dataset info in sidebar
+                    st.info(f"""
+                    **Dataset Info:**
+                    - Records: {len(main_data):,}
+                    - Variables: {len(variable_summary):,}
+                    - Total Codes: {len(data_dict):,}
+                    """)
                     
-                    # Also map string versions of numeric codes
-                    for key, value in list(cohort_labels.items()):
-                        if isinstance(key, int):
-                            cohort_labels[str(key)] = value
-                        elif isinstance(key, str) and key.isdigit():
-                            cohort_labels[int(key)] = value
-                    
-                    for code, count in cohort_counts.items():
-                        label = cohort_labels.get(code, cohort_labels.get(str(code), f"Code {code}"))
-                        st.metric(label, count)
-                
-                # Navigation
-                st.header("📊 PPMI Data Navigation")
-                page = st.selectbox(
-                    "Choose Analysis Page:",
-                    [
-                        "📋 Dataset Overview",
-                        "🏷️ Variable Categories",
-                        "🔍 Variable Explorer", 
-                        "🧠 Clinical Assessments",
-                        "📊 Data Quality Report",
-                        "🔗 Correlation Analysis",
-                        "📚 Data Dictionary Browser"
-                    ]
-                )
-                
-                # Main content area
-                if page == "📋 Dataset Overview":
-                    show_dataset_overview(main_data, data_dict, variable_summary)
-                elif page == "🏷️ Variable Categories":
-                    show_variable_categories(main_data, data_dict, variable_summary)
-                elif page == "🔍 Variable Explorer":
-                    show_variable_explorer(main_data, data_dict, variable_summary)
-                elif page == "🧠 Clinical Assessments":
-                    show_clinical_assessments(main_data, data_dict, variable_summary)
-                elif page == "📊 Data Quality Report":
-                    show_data_quality(main_data, data_dict, variable_summary)
-                elif page == "🔗 Correlation Analysis":
-                    show_correlation_analysis(main_data)
-                elif page == "📚 Data Dictionary Browser":
-                    show_data_dictionary(data_dict, variable_summary)
-                    
+                    # Show cohort distribution in sidebar if COHORT variable exists
+                    if 'COHORT' in main_data.columns:
+                        st.subheader("👥 Cohort Distribution")
+                        cohort_counts = main_data['COHORT'].value_counts()
+                        
+                        # Get cohort labels from data dictionary
+                        cohort_labels = {}
+                        cohort_info = data_dict[data_dict['Variable'] == 'COHORT']
+                        for _, row in cohort_info.iterrows():
+                            if pd.notna(row['Code']) and pd.notna(row['Decode']):
+                                # Handle both string and numeric codes
+                                code_key = str(row['Code']).strip()
+                                try:
+                                    # Try to convert to int if it's a number
+                                    if code_key.replace('.', '').isdigit():
+                                        code_key = int(float(code_key))
+                                except:
+                                    pass
+                                cohort_labels[code_key] = row['Decode']
+                        
+                        # Also map string versions of numeric codes
+                        for key, value in list(cohort_labels.items()):
+                            if isinstance(key, int):
+                                cohort_labels[str(key)] = value
+                            elif isinstance(key, str) and key.isdigit():
+                                cohort_labels[int(key)] = value
+                        
+                        for code, count in cohort_counts.items():
+                            label = cohort_labels.get(code, cohort_labels.get(str(code), f"Code {code}"))
+                            st.metric(label, count)
+                            
             except Exception as e:
                 st.error(f"❌ Error loading data: {str(e)}")
                 st.info("Please ensure your Excel file has the correct format with data and dictionary sheets.")
@@ -222,9 +201,22 @@ def main():
                     except:
                         pass  # Ignore cleanup errors
         
+        # Navigation in sidebar
+        if st.session_state.main_data is not None:
+            st.header("📊 PPMI Data Navigation")
+            page = st.selectbox(
+                "Choose Analysis Page:",
+                [
+                    "📋 Dataset Overview",
+                    "🏷️ Variable Categories",
+                    "🔍 Variable Explorer", 
+                    "🧠 Clinical Assessments",
+                    "📊 Data Quality Report",
+                    "🔗 Correlation Analysis",
+                    "📚 Data Dictionary Browser"
+                ]
+            )
         else:
-            st.info("👆 Please upload your PPMI Excel dataset to begin analysis")
-            
             # Show expected data structure
             with st.expander("📋 Expected PPMI Data Format"):
                 st.markdown("""
@@ -239,6 +231,47 @@ def main():
                 - Code: Value codes
                 - Decode: Code meanings
                 """)
+            page = None
+    
+    # Main content area (outside sidebar)
+    if st.session_state.main_data is not None:
+        main_data = st.session_state.main_data
+        data_dict = st.session_state.data_dict
+        variable_summary = st.session_state.variable_summary
+        
+        # Display the selected page content in main area
+        if page == "📋 Dataset Overview":
+            show_dataset_overview(main_data, data_dict, variable_summary)
+        elif page == "🏷️ Variable Categories":
+            show_variable_categories(main_data, data_dict, variable_summary)
+        elif page == "🔍 Variable Explorer":
+            show_variable_explorer(main_data, data_dict, variable_summary)
+        elif page == "🧠 Clinical Assessments":
+            show_clinical_assessments(main_data, data_dict, variable_summary)
+        elif page == "📊 Data Quality Report":
+            show_data_quality(main_data, data_dict, variable_summary)
+        elif page == "🔗 Correlation Analysis":
+            show_correlation_analysis(main_data)
+        elif page == "📚 Data Dictionary Browser":
+            show_data_dictionary(data_dict, variable_summary)
+    else:
+        # Welcome message in main area when no data is loaded
+        st.info("👆 Please upload your PPMI Excel dataset using the sidebar to begin analysis")
+        
+        # Show some information about the dashboard
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.subheader("📋 Dataset Overview")
+            st.write("Comprehensive metrics and cohort analysis")
+        
+        with col2:
+            st.subheader("� Variable Explorer")
+            st.write("Search and analyze individual variables")
+        
+        with col3:
+            st.subheader("🧠 Clinical Assessments")
+            st.write("Explore clinical variables and assessments")
 
 def analyze_single_variable(data, variable, data_dict):
     """Analyze a single variable in detail with proper code/decode display"""
