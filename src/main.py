@@ -5,6 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
 import sys
+import tempfile
+import os
 
 # Add utils to path
 sys.path.append(str(Path(__file__).parent.parent / "utils"))
@@ -35,12 +37,10 @@ def main():
         )
         
         if uploaded_file is not None:
-            # Save uploaded file temporarily
-            data_path = Path("data") / "temp_dataset.xlsx"
-            data_path.parent.mkdir(exist_ok=True)
-            
-            with open(data_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+            # Save uploaded file temporarily (cloud-compatible)
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+                tmp_file.write(uploaded_file.getbuffer())
+                data_path = tmp_file.name
             
             st.success("✅ File uploaded successfully!")
             
@@ -72,6 +72,13 @@ def main():
             except Exception as e:
                 st.error(f"❌ Error loading data: {str(e)}")
                 st.info("Please ensure your Excel file has the correct format with data and dictionary sheets.")
+            finally:
+                # Clean up temporary file
+                if 'data_path' in locals() and os.path.exists(data_path):
+                    try:
+                        os.unlink(data_path)
+                    except:
+                        pass  # Ignore cleanup errors
         
         else:
             st.info("👆 Please upload your Excel dataset to begin analysis")
