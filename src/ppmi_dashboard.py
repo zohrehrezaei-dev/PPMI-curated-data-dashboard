@@ -125,10 +125,25 @@ def main():
             cohort_info = data_dict[data_dict['Variable'] == 'COHORT']
             for _, row in cohort_info.iterrows():
                 if pd.notna(row['Code']) and pd.notna(row['Decode']):
-                    cohort_labels[row['Code']] = row['Decode']
+                    # Handle both string and numeric codes
+                    code_key = str(row['Code']).strip()
+                    try:
+                        # Try to convert to int if it's a number
+                        if code_key.replace('.', '').isdigit():
+                            code_key = int(float(code_key))
+                    except:
+                        pass
+                    cohort_labels[code_key] = row['Decode']
+            
+            # Also map string versions of numeric codes
+            for key, value in list(cohort_labels.items()):
+                if isinstance(key, int):
+                    cohort_labels[str(key)] = value
+                elif isinstance(key, str) and key.isdigit():
+                    cohort_labels[int(key)] = value
             
             for code, count in cohort_counts.items():
-                label = cohort_labels.get(code, f"Code {code}")
+                label = cohort_labels.get(code, cohort_labels.get(str(code), f"Code {code}"))
                 st.metric(label, count)
         
         # Navigation
@@ -193,10 +208,28 @@ def show_dataset_overview(data, data_dict, variable_summary):
             cohort_info = data_dict[data_dict['Variable'] == 'COHORT']
             for _, row in cohort_info.iterrows():
                 if pd.notna(row['Code']) and pd.notna(row['Decode']):
-                    cohort_labels[row['Code']] = row['Decode']
+                    # Handle both string and numeric codes
+                    code_key = str(row['Code']).strip()
+                    try:
+                        # Try to convert to int if it's a number
+                        if code_key.replace('.', '').isdigit():
+                            code_key = int(float(code_key))
+                    except:
+                        pass
+                    cohort_labels[code_key] = row['Decode']
+            
+            # Also map string versions of numeric codes
+            for key, value in list(cohort_labels.items()):
+                if isinstance(key, int):
+                    cohort_labels[str(key)] = value
+                elif isinstance(key, str) and key.isdigit():
+                    cohort_labels[int(key)] = value
             
             # Create labeled data for visualization
-            labels = [cohort_labels.get(code, f"Code {code}") for code in cohort_counts.index]
+            labels = []
+            for code in cohort_counts.index:
+                label = cohort_labels.get(code, cohort_labels.get(str(code), f"Code {code}"))
+                labels.append(label)
             
             fig = px.pie(
                 values=cohort_counts.values,
@@ -208,7 +241,7 @@ def show_dataset_overview(data, data_dict, variable_summary):
         with col2:
             st.subheader("📊 Cohort Statistics")
             for code, count in cohort_counts.items():
-                label = cohort_labels.get(code, f"Code {code}")
+                label = cohort_labels.get(code, cohort_labels.get(str(code), f"Code {code}"))
                 percentage = (count / len(data)) * 100
                 st.metric(label, f"{count} ({percentage:.1f}%)")
     
@@ -245,53 +278,83 @@ def show_variable_categories(data, data_dict, variable_summary):
     """Browse variables by categories"""
     st.header("🏷️ Variable Categories Explorer")
     
-    # Category selection
-    categories = sorted(variable_summary['Category'].unique())
-    selected_category = st.selectbox("Select a category to explore:", categories)
-    
-    if selected_category:
-        # Filter variables by category
-        category_vars = variable_summary[variable_summary['Category'] == selected_category]
+    try:
+        # Category selection
+        categories = sorted(variable_summary['Category'].unique())
+        selected_category = st.selectbox("Select a category to explore:", categories)
         
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.subheader(f"📊 Variables in: {selected_category}")
+        if selected_category:
+            # Filter variables by category
+            category_vars = variable_summary[variable_summary['Category'] == selected_category]
             
-            # Show category variables with enhanced info
-            display_data = category_vars[['Variable', 'Description', 'Codes_Count', 'All_Codes']].copy()
-            st.dataframe(display_data, width='stretch')
-        
-        with col2:
-            st.subheader("📋 Category Statistics")
-            st.metric("Variables in Category", len(category_vars))
+            col1, col2 = st.columns([2, 1])
             
-            # Check which variables exist in main data
-            existing_vars = category_vars['Variable'].isin(data.columns).sum()
-            st.metric("Available in Dataset", existing_vars)
+            with col1:
+                st.subheader(f"📊 Variables in: {selected_category}")
+                
+                # Show ONLY essential info to avoid browser freeze
+                # Remove the problematic All_Codes column that can be huge
+                essential_display = category_vars[['Variable', 'Description', 'Codes_Count']].copy()
+                
+                # Truncate long descriptions to prevent display issues
+                essential_display['Description'] = essential_display['Description'].str.slice(0, 100)
+                essential_display.loc[essential_display['Description'].str.len() >= 100, 'Description'] += '...'
+                
+                st.dataframe(essential_display, width='stretch')
+                
+                # Show count info
+                st.info(f"Showing {len(essential_display)} variables. Select one below for detailed analysis.")
             
-            # Variables with codes
-            vars_with_codes = len(category_vars[category_vars['Codes_Count'] > 0])
-            st.metric("Variables with Codes", vars_with_codes)
+            with col2:
+                st.subheader("📋 Category Statistics")
+                st.metric("Variables in Category", len(category_vars))
+                
+                # Check which variables exist in main data
+                existing_vars = category_vars['Variable'].isin(data.columns).sum()
+                st.metric("Available in Dataset", existing_vars)
+                
+                # Variables with codes
+                vars_with_codes = len(category_vars[category_vars['Codes_Count'] > 0])
+                st.metric("Variables with Codes", vars_with_codes)
+                
+                # Missing data for this category
+                if existing_vars > 0:
+                    try:
+                        available_category_vars = category_vars['Variable'][category_vars['Variable'].isin(data.columns)]
+                        if len(available_category_vars) > 0:
+                            category_data = data[available_category_vars.tolist()[:5]]  # Limit to first 5 to avoid overload
+                            missing_pct = (category_data.isnull().sum().sum() / (len(category_data) * len(category_data.columns))) * 100
+                            st.metric("Category Completeness", f"{100 - missing_pct:.1f}%")
+                    except Exception:
+                        st.metric("Category Completeness", "Calculating...")
             
-            # Missing data for this category
-            if existing_vars > 0:
-                category_data = data[category_vars['Variable'][category_vars['Variable'].isin(data.columns)]]
-                missing_pct = (category_data.isnull().sum().sum() / (len(category_data) * len(category_data.columns))) * 100
-                st.metric("Category Completeness", f"{100 - missing_pct:.1f}%")
-        
-        # Variable analysis for this category
-        st.subheader(f"📈 {selected_category} - Variable Analysis")
-        
-        available_vars = category_vars['Variable'][category_vars['Variable'].isin(data.columns)].tolist()
-        
-        if available_vars:
-            selected_var = st.selectbox("Select variable to analyze:", available_vars)
+            # Variable analysis for this category
+            st.subheader(f"📈 {selected_category} - Single Variable Analysis")
             
-            if selected_var:
-                analyze_single_variable(data, selected_var, data_dict)
-        else:
-            st.warning("No variables from this category found in the main dataset")
+            available_vars = category_vars['Variable'][category_vars['Variable'].isin(data.columns)].tolist()
+            
+            if available_vars:
+                # Limit options to prevent overload
+                var_options = available_vars[:20]  # Show max 20 variables
+                
+                selected_var = st.selectbox(
+                    "Select variable to analyze:", 
+                    options=["--- Select a variable ---"] + var_options
+                )
+                
+                if selected_var != "--- Select a variable ---":
+                    st.markdown("---")
+                    with st.spinner(f"Analyzing {selected_var}..."):
+                        try:
+                            analyze_single_variable(data, selected_var, data_dict)
+                        except Exception as e:
+                            st.error(f"Error analyzing {selected_var}: {str(e)}")
+            else:
+                st.warning("No variables from this category found in the main dataset")
+                
+    except Exception as e:
+        st.error(f"Error in Variable Categories: {str(e)}")
+        st.info("Try using the Variable Explorer for a different approach.")
 
 def show_variable_explorer(data, data_dict, variable_summary):
     """Enhanced variable explorer"""
@@ -355,14 +418,37 @@ def analyze_single_variable(data, variable, data_dict):
                 # This is a coded variable - show distribution with proper labels
                 value_counts = data[variable].value_counts().sort_index()
                 
-                # Create labels using the codes dictionary
+                # Create labels using the codes dictionary with robust type handling
                 code_labels = {}
                 for _, row in codes_data.iterrows():
                     if pd.notna(row['Code']) and pd.notna(row['Decode']):
-                        code_labels[row['Code']] = f"{row['Code']}: {row['Decode']}"
+                        # Handle both string and numeric codes
+                        code_key = str(row['Code']).strip()
+                        try:
+                            # Try to convert to int if it's a number
+                            if code_key.replace('.', '').isdigit():
+                                code_key = int(float(code_key))
+                        except:
+                            pass
+                        
+                        # For COHORT and other important variables, use just the decode name
+                        if variable == 'COHORT':
+                            code_labels[code_key] = row['Decode']
+                        else:
+                            code_labels[code_key] = f"{row['Code']}: {row['Decode']}"
+                
+                # Also map string versions of numeric codes
+                for key, value in list(code_labels.items()):
+                    if isinstance(key, int):
+                        code_labels[str(key)] = value
+                    elif isinstance(key, str) and key.isdigit():
+                        code_labels[int(key)] = value
                 
                 # Create labeled data
-                labels = [code_labels.get(code, f"Code {code}") for code in value_counts.index]
+                labels = []
+                for code in value_counts.index:
+                    label = code_labels.get(code, code_labels.get(str(code), f"Code {code}"))
+                    labels.append(label)
                 
                 fig = px.bar(
                     x=value_counts.index,
@@ -450,27 +536,60 @@ def show_clinical_assessments(data, data_dict, variable_summary):
     """Show clinical assessment analysis"""
     st.header("🧠 Clinical Assessments Analysis")
     
-    # Identify clinical variables
-    clinical_keywords = ['updrs', 'hoehn', 'yahr', 'moca', 'mmse', 'diagnosis', 'age', 'gender', 'tremor']
+    # Very simple and safe approach
+    st.info("This section analyzes clinical assessment variables from the PPMI dataset.")
     
-    clinical_vars = []
-    for col in data.columns:
-        col_lower = col.lower()
-        for keyword in clinical_keywords:
-            if keyword in col_lower:
-                clinical_vars.append(col)
-                break
+    try:
+        # Use a keyword-based approach which is more reliable
+        clinical_keywords = ['updrs', 'hoehn', 'yahr', 'moca', 'mmse', 'diagnosis', 'age', 'gender', 'tremor', 'motor', 'cognitive']
+        
+        st.subheader("🔍 Clinical Variable Search")
+        st.write("Available clinical keywords:", ", ".join(clinical_keywords))
+        
+        # Let user search by keyword
+        search_keyword = st.selectbox(
+            "Select a clinical assessment type to explore:",
+            options=["--- Select keyword ---"] + clinical_keywords
+        )
+        
+        if search_keyword != "--- Select keyword ---":
+            # Find matching variables
+            matching_vars = []
+            for col in data.columns:
+                if search_keyword.lower() in col.lower():
+                    matching_vars.append(col)
+            
+            if matching_vars:
+                st.subheader(f"📊 Variables containing '{search_keyword}'")
+                st.write(f"Found {len(matching_vars)} variables:")
+                
+                # Show first 10 variables as simple list
+                for i, var in enumerate(matching_vars[:10], 1):
+                    st.write(f"{i}. `{var}`")
+                
+                if len(matching_vars) > 10:
+                    st.write(f"... and {len(matching_vars) - 10} more")
+                
+                # Single variable selection for detailed analysis
+                selected_var = st.selectbox(
+                    f"Select a {search_keyword} variable to analyze in detail:",
+                    options=["--- Select variable ---"] + matching_vars[:10]
+                )
+                
+                if selected_var != "--- Select variable ---":
+                    st.markdown("---")
+                    with st.spinner(f"Analyzing {selected_var}..."):
+                        try:
+                            analyze_single_variable(data, selected_var, data_dict)
+                        except Exception as e:
+                            st.error(f"Error analyzing {selected_var}: {str(e)}")
+            else:
+                st.warning(f"No variables found containing '{search_keyword}'")
+                st.info("Try a different keyword or use the Variable Explorer for more options.")
     
-    if not clinical_vars:
-        st.warning("No clinical assessment variables detected. Try using the Variable Explorer to find specific assessments.")
-        return
-    
-    st.subheader("🎯 Detected Clinical Variables")
-    
-    # Display clinical variables
-    for i, var in enumerate(clinical_vars[:15], 1):
-        with st.expander(f"{i}. {var}"):
-            analyze_single_variable(data, var, data_dict)
+    except Exception as e:
+        st.error(f"Error in clinical assessments: {str(e)}")
+        st.info("Use the Variable Explorer to search for clinical variables manually.")
 
 def show_data_quality(data, data_dict, variable_summary):
     """Show comprehensive data quality report"""
